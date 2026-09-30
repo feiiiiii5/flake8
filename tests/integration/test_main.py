@@ -55,6 +55,25 @@ if True:
         assert cli.main(["t.py"]) == 0
 
 
+def test_flake8_noqa_in_string_is_not_ignored(tmpdir, capsys):
+    """A `# flake8: noqa` in a string must not silence the whole file."""
+    t_py_contents = '''\
+"""Module docstring documenting our flake8 setup.
+
+# flake8: noqa
+"""
+
+import os
+'''
+    with tmpdir.as_cwd():
+        tmpdir.join("t.py").write(t_py_contents)
+        assert cli.main(["t.py"]) == 1
+
+    out, err = capsys.readouterr()
+    assert out == "t.py:6:1: F401 'os' imported but unused\n"
+    assert err == ""
+
+
 def test_statistics_option(tmpdir, capsys):
     """Ensure that `flake8 --statistics` works."""
     with tmpdir.as_cwd():

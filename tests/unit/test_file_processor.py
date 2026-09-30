@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import logging
 import tokenize
 from unittest import mock
 
@@ -78,6 +79,19 @@ def test_strip_utf_bom(first_line, default_options):
         (["#!/usr/bin/python", "a = 1", "# flake8:noqa"], True),
         (["#!/usr/bin/python", "a = 1  # flake8: noqa"], False),
         (["#!/usr/bin/python", "a = 1  # flake8:noqa"], False),
+        # `# flake8: noqa` inside a string is not a comment
+        (
+            ['"""Docstring.\n', "# flake8: noqa\n", '"""\n', "a = 1\n"],
+            False,
+        ),
+        (
+            ["s = '''\n", "# flake8: noqa\n", "'''\n", "a = 1\n"],
+            False,
+        ),
+        (
+            ['x = """# flake8: noqa"""\n', "# flake8: noqa\n", "a = 1\n"],
+            True,
+        ),
     ],
 )
 def test_should_ignore_file(lines, expected, default_options):
@@ -94,6 +108,27 @@ def test_should_ignore_file_to_handle_disable_noqa(default_options):
     default_options.disable_noqa = True
     file_processor = processor.FileProcessor("-", default_options, lines)
     assert file_processor.should_ignore_file() is False
+
+
+def test_should_ignore_file_warns_only_for_a_comment(default_options, caplog):
+    """The "on a line with code" warning is about a misplaced comment.
+
+    Filtering the directive down to comment lines must not silence the warning
+    for a real comment that trails code, and must not raise it for a mention
+    inside a string.
+    """
+    caplog.set_level(logging.WARNING, logger="flake8.processor")
+
+    trailing = ["#!/usr/bin/python", "a = 1  # flake8: noqa"]
+    fp = processor.FileProcessor("-", default_options, trailing)
+    assert fp.should_ignore_file() is False
+    assert any("on line with code" in r.message for r in caplog.records)
+
+    caplog.clear()
+    in_string = ['"""Docs.\n', "# flake8: noqa\n", '"""\n', "a = 1\n"]
+    fp = processor.FileProcessor("-", default_options, in_string)
+    assert fp.should_ignore_file() is False
+    assert not any("on line with code" in r.message for r in caplog.records)
 
 
 @mock.patch("flake8.utils.stdin_get_value")

@@ -353,25 +353,47 @@ class FileProcessor:
         """Read the lines from standard in."""
         return utils.stdin_get_lines()
 
+    def _comment_lines(self) -> list[str]:
+        """Return the lines of the file which carry a comment token.
+
+        Lines which only mention ``# flake8: noqa`` inside a string literal
+        are deliberately excluded: a file is only ignored when the directive
+        is an actual comment.
+        """
+        try:
+            file_tokens = self.file_tokens
+        except (tokenize.TokenError, SyntaxError):
+            # if we failed to parse the file tokens we cannot tell comments
+            # from strings, so fall back to every line
+            return self.lines
+
+        return [
+            self.lines[token.start[0] - 1]
+            for token in file_tokens
+            if token.type == tokenize.COMMENT
+        ]
+
     def should_ignore_file(self) -> bool:
         """Check if ``flake8: noqa`` is in the file to be ignored.
 
         :returns:
-            True if a line matches :attr:`defaults.NOQA_FILE`,
+            True if a comment matches :attr:`defaults.NOQA_FILE`,
             otherwise False
         """
+        if not any(defaults.NOQA_FILE.search(line) for line in self.lines):
+            return False
+
+        comment_lines = self._comment_lines()
         if not self.options.disable_noqa and any(
-            defaults.NOQA_FILE.match(line) for line in self.lines
+            defaults.NOQA_FILE.match(line) for line in comment_lines
         ):
             return True
-        elif any(defaults.NOQA_FILE.search(line) for line in self.lines):
+        elif any(defaults.NOQA_FILE.search(line) for line in comment_lines):
             LOG.warning(
                 "Detected `flake8: noqa` on line with code. To ignore an "
                 "error on a line use `noqa` instead.",
             )
-            return False
-        else:
-            return False
+        return False
 
     def strip_utf_bom(self) -> None:
         """Strip the UTF bom from the lines of the file."""
